@@ -1,3 +1,6 @@
+
+function isNumber(x) { return x == parseFloat(x) }
+
 export class Point {
     x: number
     y: number
@@ -9,18 +12,30 @@ export class Point {
         } else if (Array.isArray(x) && x.length == 2) {
             this.x = x[0]
             this.y = x[1]
-        } else {
+        } else if (isNumber(x) && isNumber(y)) {
             this.x = x as number
             this.y = y
+        } else {
+            throw new Error(`unknown value x: ${x} y: ${y} ${x instanceof Number}`)
         }
         //console.log('  =>', this)
     }
-    unscaleBy(scale: Point | number[]) {
-        let p = new Point(scale)
+    unscaleBy(scale: Point | number[] | number) {
+        let p: Point
+        if (isNumber(scale)) {
+            p = new Point(scale, scale as number)
+        } else {
+            p = new Point(scale, null)
+        }
         return new Point(this.x / p.x, this.y / p.y)
     }
-    scaleBy(scale: Point | number[]) {
-        let p = new Point(scale)
+    scaleBy(scale: Point | number[] | number) {
+        let p: Point
+        if (isNumber(scale)) {
+            p = new Point(scale, scale as number)
+        } else {
+            p = new Point(scale, null)
+        }
         return new Point(this.x * p.x, this.y * p.y)
     }
     floor() {

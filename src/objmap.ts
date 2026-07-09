@@ -5,7 +5,7 @@ import { image2sixel, sixelEncode } from 'sixel';
 import RgbQuant from 'rgbquant'
 import keypress from 'keypress'
 
-import { load_image } from './img.ts'
+import { load_image, load_svg } from './img.ts'
 
 import { Transformation, Point, Bounds } from './geometry.ts'
 import { sixel_size } from './size.ts'
@@ -13,6 +13,10 @@ import { sixel_size } from './size.ts'
 let ZOOM = 3
 let SCALE = 2
 
+const dungeons_url = "https://objmap.zeldamods.org/game_files/text/StaticMsg/Dungeon.json"
+const static_items_url = "https://objmap.zeldamods.org/game_files/map_summary/MainField/static.json"
+const location_markers = "https://objmap.zeldamods.org/game_files/text/StaticMsg/LocationMarker.json"
+const name = "https://objmap.zeldamods.org/game_files/names.json"
 
 const MAX_PALETTE = 256
 const BACKGROUND_SELECT = 0;
@@ -106,6 +110,17 @@ function onKey(key: any) {
 let trans = new Transformation(4 / TILE_SIZE, MAP_SIZE[0] / TILE_SIZE,
     4 / TILE_SIZE, MAP_SIZE[1] / TILE_SIZE)
 
+class MapItem {
+    pos: number[]
+    style: any
+    id: number
+    constructor(id: number, pos: number[], style: any = {}) {
+        this.id = id
+        this.pos = pos
+        this.style = style
+    }
+}
+
 class Screen {
     swidth: number     // Terminal width in pixels (probably wrong)
     sheight: number    // Terminal height in pixels
@@ -121,7 +136,8 @@ class Screen {
     loaded: any        // Tile layers loaded
     imgs: any          // Tile images
     tile_delay: number // Time in milliseconds after which to remove tiles
-
+    items: any         // Items to draw
+    item_id: number    //
     constructor(sixel: any, zoom: number, scale: number = 2) {
         this.swidth = sixel.width
         this.sheight = sixel.height
@@ -132,9 +148,16 @@ class Screen {
         this.loaded = {}
         this.imgs = {}
         this.tile_delay = 1000 * 30
+        this.items = {}
+        this.item_id = 0
         this.setZoom(zoom)
         this.resize()
     }
+    add_item(pos: number[], style: any = {}) {
+        let id = this.item_id++
+        this.items[id] = new MapItem(id, pos, style)
+    }
+
     setSize(width: number, height: number) {
         this.swidth = width
         this.sheight = height
@@ -187,8 +210,7 @@ async function update(screen: Screen) {
     let sixel_dims = new Point(screen.swidth, screen.sheight)
 
     let tile_ul = tile_center.subtract(sixel_dims.divideBy(2)).floor()
-    let scale = screen.scale
-    tile_ul = tile_ul.scaleBy([scale, scale])
+    tile_ul = tile_ul.scaleBy(screen.scale)
     screen.tile_ul = tile_ul
 
     await draw_tiles(screen)
@@ -241,8 +263,21 @@ async function draw_tiles(screen: Screen) {
     const W = Math.floor(screen.swidth * screen.scale)
     const H = Math.floor(screen.sheight * screen.scale)
 
+    // Provide ability to draw extras on the visible base map
+    const canvas_2 = createCanvas(W, H)
+    const ctx_2 = canvas_2.getContext('2d')
+    ctx_2.drawImage(canvas, screen.tile_ul.x, screen.tile_ul.y, W, H, 0, 0, W, H)
+
+    for (const item of Object.values(screen.items) as MapItem[]) {
+        let pt = trans.transform(item.pos, screen.getTileScale()).scaleBy(screen.scale).subtract(screen.tile_ul)
+        if (item.style.icon) {
+            let icon_size = item.style.icon_size || [64, 64]
+            ctx_2.drawImage(item.style.icon, pt.x, pt.y, icon_size[0], icon_size[1])
+        }
+    }
     // Grab data from current zoom level map / canvas
-    const data = ctx.getImageData(screen.tile_ul.x, screen.tile_ul.y, W, H).data;
+    //const data = ctx_2.getImageData(screen.tile_ul.x, screen.tile_ul.y, W, H).data;
+    const data = ctx_2.getImageData(0, 0, W, H).data;
 
     const q = screen.q
 
@@ -304,9 +339,33 @@ process.stdout.on('resize', async () => {
     await update(screen)
 
 })
+async function load_json(url) {
+    const res = await fetch(url)
+    return res.json()
+}
 
-let screen = new Screen(sixel, ZOOM, SCALE)
+let screen
+const dungeon_icon_url = "https://objmap.zeldamods.org/icons/mapicon_dungeon.svg"
+const tower_icon_url = "https://objmap.zeldamods.org/icons/mapicon_tower.svg"
+async function main() {
+    let dungeon_icon = await load_svg(dungeon_icon_url)
+    let tower_icon = await load_svg(tower_icon_url)
+    let static_items = await load_json(static_items_url)
+    screen = new Screen(sixel, ZOOM, SCALE)
+
+    for (let dungeon of static_items.markers.Dungeon) {
+        let p = dungeon.Translate
+        screen.add_item([p.X, p.Z], { icon: dungeon_icon, icon_size: [64, 64] })
+    }
+    for (let item of static_items.markers.Tower) {
+        let p = item.Translate
+        screen.add_item([p.X, p.Z], { icon: tower_icon, icon_size: [64, 64] })
+    }
+    initKeyboard()
+    center_move(0, 0)
+}
 
 
-initKeyboard()
-center_move(0, 0)
+
+
+main()
